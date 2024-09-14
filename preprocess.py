@@ -1,9 +1,11 @@
 from typing import Tuple
 from pyspark import SparkContext, RDD
+import os
+from tqdm import trange
+
+cwd = os.getcwd()
 
 def load_datasets():
-    #!/usr/bin/env python
-    import os
 
     # Set cache directory under the current directory
     cwd = os.getcwd()
@@ -70,34 +72,34 @@ def load_datasets():
     
     return review_dataset, item_meta_dataset
 
-def load_rdds(sc:SparkContext) -> Tuple[RDD, RDD]:
-    """
+def store_rating_data():
     
-    returns train_rdd, test_rdd. 
-    RDDs are in form of (user_id, item_id, rating).
+    review_dataset, _ = load_datasets()
+    
+    
+    user_dir = os.path.join(cwd, "data/rating/user")
+    product_dir = os.path.join(cwd, "data/rating/product")
+    
+    os.makedirs(user_dir, exist_ok=True)
+    os.makedirs(product_dir, exist_ok=True)
+    
+    for r_idx in trange(0, len(review_dataset)):
+        
+        review = review_dataset[r_idx]
+        
+        user_id = review['user_id']
+        product_id = review['parent_asin']
+        rating = float(review['rating'])
+        
+        with open(os.path.join(user_dir, user_id), "a") as user_file:
+            user_file.write(f"{product_id},{rating}\n")
+            user_file.close()
+            
+        with open(os.path.join(product_dir, product_id), "a") as product_file:
+            product_file.write(f"{user_id},{rating}\n")
+            product_file.close()
 
+if __name__ == "__main__":
     
-    Args:
-        sc (SparkContext): _description_
-    """
-    import json
-    
-    review_dataset, item_meta_dataset = load_datasets()
-    
-    review_rdd = sc.parallelize(review_dataset)
-    
-    def json_to_tuple(review_str:str):
-        data = json.load(review_str)
-        return data['user_id'], data['parent_asin'], data['rating']
-    
-    review_rdd = review_rdd.map(json_to_tuple)
-    
-    seed = 1234
-    train_fraction = 0.9  # 90% for training, 10% for testing
-    train_rdd, test_rdd = review_rdd.randomSplit([train_fraction, 1 - train_fraction], seed=seed)
-    
-    return train_rdd, test_rdd
-    
-    
-    
-    
+    store_rating_data()
+            
