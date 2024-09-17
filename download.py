@@ -72,32 +72,6 @@ def load_datasets():
     
     return review_dataset, item_meta_dataset
 
-def load_table(sc:SparkContext) -> Tuple[RDD, RDD]:
-    """
-    
-    returns train_rdd, test_rdd. 
-    RDDs are in form of (user_id, item_id, rating).
-
-    
-    Args:
-        sc (SparkContext): _description_
-    """
-    
-    review_dataset, _ = load_datasets()
-    
-    review_rdd = sc.parallelize(review_dataset)
-    
-    def dict_to_tuple(review: Dict):
-        return review['user_id'], review['parent_asin'], review['rating']
-    
-    review_rdd = review_rdd.map(dict_to_tuple)
-    
-    seed = 1234
-    train_fraction = 0.9  # 90% for training, 10% for testing
-    train_rdd, test_rdd = review_rdd.randomSplit([train_fraction, 1 - train_fraction], seed=seed)
-    
-    return train_rdd, test_rdd
-    
 
 
 
