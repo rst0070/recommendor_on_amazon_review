@@ -1,3 +1,5 @@
 cache
 .venv
-data
+__pycache__
+reviews.db
+.vscode

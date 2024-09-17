@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Dict
 from pyspark import SparkContext, RDD
 
 def load_datasets():
@@ -16,13 +16,15 @@ def load_datasets():
                         "McAuley-Lab/Amazon-Reviews-2023",
                         "raw_review_Home_and_Kitchen",
                         trust_remote_code=True,
+                        streaming=True
                     )['full']
 
     item_meta_dataset = load_dataset(
                         "McAuley-Lab/Amazon-Reviews-2023",
                         "raw_meta_Home_and_Kitchen",
                         split="full",
-                        trust_remote_code=True
+                        trust_remote_code=True,
+                        streaming=True
                     )
     
     """
@@ -70,7 +72,7 @@ def load_datasets():
     
     return review_dataset, item_meta_dataset
 
-def load_rdds(sc:SparkContext) -> Tuple[RDD, RDD]:
+def load_table(sc:SparkContext) -> Tuple[RDD, RDD]:
     """
     
     returns train_rdd, test_rdd. 
@@ -80,17 +82,15 @@ def load_rdds(sc:SparkContext) -> Tuple[RDD, RDD]:
     Args:
         sc (SparkContext): _description_
     """
-    import json
     
-    review_dataset, item_meta_dataset = load_datasets()
+    review_dataset, _ = load_datasets()
     
     review_rdd = sc.parallelize(review_dataset)
     
-    def json_to_tuple(review_str:str):
-        data = json.load(review_str)
-        return data['user_id'], data['parent_asin'], data['rating']
+    def dict_to_tuple(review: Dict):
+        return review['user_id'], review['parent_asin'], review['rating']
     
-    review_rdd = review_rdd.map(json_to_tuple)
+    review_rdd = review_rdd.map(dict_to_tuple)
     
     seed = 1234
     train_fraction = 0.9  # 90% for training, 10% for testing
@@ -98,6 +98,77 @@ def load_rdds(sc:SparkContext) -> Tuple[RDD, RDD]:
     
     return train_rdd, test_rdd
     
+
+
+
+# Define a function to process the data and save to a database
+def save_to_database(batch_size=1000):
     
+    import sqlite3
+    import random
+    from tqdm import tqdm
     
+    con = sqlite3.connect("reviews.db")
+    cur = con.cursor()
     
+    cur.execute("""
+            CREATE TABLE reviews_train(
+                row_id integer primary key,
+                user_id TEXT,
+                product_id TEXT,
+                timestamp TEXT,
+                rating REAL
+            );            
+            """)
+    
+    cur.execute("""
+            CREATE TABLE reviews_test(
+                row_id integer primary key,
+                user_id TEXT,
+                product_id TEXT,
+                timestamp TEXT,
+                rating REAL
+            );            
+            """)
+    
+    dataset, _ = load_datasets()
+    
+    # Initialize batch processing
+    batch = []
+    
+    # Process the dataset in batches
+    for review in tqdm(dataset):
+        # Assuming dataset has keys like 'review_id', 'review_text', etc.
+        batch.append(
+            (
+                review['user_id'],
+                review['parent_asin'],
+                str(review['timestamp']),
+                review['rating']
+            )
+        )
+        
+        # Once the batch size is reached, insert into the database
+        if len(batch) == batch_size:
+            t_or_t = random.randint(1, 10)
+            
+            if t_or_t == 1:
+                cur.executemany("insert into reviews_test(row_id, user_id, product_id, timestamp, rating) values (NULL,?,?,?,?)", batch)   
+            else:
+                cur.executemany("insert into reviews_train(row_id, user_id, product_id, timestamp, rating) values (NULL,?,?,?,?)", batch)
+            
+            con.commit()    
+            batch.clear()  # Clear the batch for the next set of records
+            
+    
+    # Insert any remaining records that are less than the batch size
+    if batch:
+        cur.executemany("insert into reviews_train(row_id, user_id, product_id, timestamp, rating) values (NULL,?,?,?,?)", batch)
+        con.commit()
+        batch.clear()  # Clear the batch for the next set of records
+
+    con.close()
+
+if __name__ == "__main__":
+    
+    save_to_database()
