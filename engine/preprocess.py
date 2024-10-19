@@ -1,110 +1,226 @@
-import sqlite3
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-from tqdm import tqdm
-import random
 
-def create_schema(engine:Engine):
+import os
+import random
+from typing import Tuple
+from tqdm import tqdm
+
+
+USER_ID = 0
+PRODUCT_ID = 0
+dict_user_id = {}
+dict_product_id = {}
+dict_train_ref = {}
+"""
+key: user_id
+value: {'review_ids':'1,2,3','product_ids':'5,6,7', 'ratings':'1.0,3.0,5.0'}
+"""
+
+def get_ids(user_id:str, product_id:str) -> Tuple[int, int]:
     """
-    Creates schema for DB
+    Generates integer ids for user_id and product_id
+    from string ids
+    
+    Args:
+        user_id (str): _description_
+        product_id (str): _description_
+
+    Returns:
+        Tuple[int, int]: user_id, product_id
     """
-    with engine.begin() as conn:
+    global USER_ID
+    global PRODUCT_ID
+    global dict_user_id
+    global dict_product_id
+    
+    if user_id not in dict_user_id.keys():
+            
+        dict_user_id[user_id] = USER_ID
+        USER_ID += 1
+            
+    if product_id not in dict_product_id.keys():
+            
+        dict_product_id[product_id] = PRODUCT_ID
+        PRODUCT_ID += 1
         
+    return dict_user_id[user_id], dict_product_id[product_id]
+        
+def _insert_reference_data_batch(engine:Engine, batch_data:list):
+    
+    query = text(
+        """
+        INSERT INTO reviews_reference(user_id, review_ids, product_ids, ratings)
+        VALUES (:user_id, :review_ids, :product_ids, :ratings)
+        """
+    )
+    
+    with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                CREATE TABLE product_info(
-                    product_id_int integer primary key,
-                    product_id TEXT unique
-                )
-                """
-            )
+            query,
+            batch_data
+        )    
+    
+    
+def insert_reference_data(engine:Engine, batch_size:int):
+    """
+    Updates reference data.
+    It means inserting all review data per a user, 
+    making it possible to use products as user's feature.
+    """
+    batch = []
+    for user_id, val_dict in tqdm(dict_train_ref.items(), desc="update ref data"):
+        
+        batch.append(
+            {
+                'user_id'       : user_id,
+                'review_ids'    : val_dict['review_ids'],
+                'product_ids'   : val_dict['product_ids'],
+                'ratings'       : val_dict['ratings']
+            }
         )
         
-        conn.execute(
-                text(
-                    """
-                    CREATE TABLE reviews_train(
-                        row_id integer primary key,
-                        user_id TEXT,
-                        product_id TEXT,
-                        rating REAL,
-                        product_id_int integer,
-                        foreign key(product_id_int) references product_info(product_id_int)
-                    );
-                    """
-                )
-            )
-        
-        conn.execute(
-                text(
-                    """
-                    CREATE TABLE reviews_validation(
-                        row_id integer primary key,
-                        user_id TEXT,
-                        product_id TEXT,
-                        rating REAL,
-                        product_id_int integer,
-                        foreign key(product_id_int) references product_info(product_id_int)
-                    );
-                    """
-                )
-            )
-        
-        conn.execute(
-                text(
-                    """
-                    CREATE TABLE reviews_test(
-                        row_id integer primary key,
-                        user_id TEXT,
-                        product_id TEXT,
-                        rating REAL,
-                        product_id_int integer,
-                        foreign key(product_id_int) references product_info(product_id_int)
-                    );
-                    """
-                )
-            )
+        if len(batch) == batch_size:
+            _insert_reference_data_batch(engine, batch)
+            batch.clear()
+            
+    if batch:
+        _insert_reference_data_batch(engine, batch)
+        batch.clear()
+
         
 
-def insert_reviews(engine:Engine, review_batch:list[dict]):
+def _insert_reviews_batch(engine:Engine, batch_data:list):
     """
-    Inserts into reviews table, using review batch it gets.
+    sub function for insert_reviews.
+    - batch insert
+    - if the batch goes to reviews_train
+        - save the review data for reference data
     """
-    branch = random.randint(1, 10)
-    table_name = "reviews_"
-            
-    if branch == 1:
-        table_name += 'test'
-    elif branch == 2:
-        table_name += 'validation'
-    else:
-        table_name += 'train'
+    target_table = random.choices(
+                        ["reviews_train","reviews_test","reviews_valid"],
+                        [8.0,1.0,1.0],
+                        k = 1
+                    )[0]
         
     with engine.begin() as conn:
         conn.execute(
             text(
             f"""
-            INSERT INTO {table_name}(user_id, product_id, rating)
-            VALUES(:user_id, :product_id, :rating) 
-            """
-            ),
-            review_batch
+            INSERT INTO {target_table}(review_id,user_id,product_id,rating)
+            VALUES(:review_id,:user_id,:product_id,:rating)
+            """),
+            batch_data
         )
-        
-
-        
+            
+    if target_table != "reviews_train":
+        return
     
-def load_data_to_db(
-    engine:Engine,
-    cache_dir:str,
-    batch_size:int):
+    for row_dict in batch_data:
+        
+        prefix = ','
+        user_id = row_dict['user_id']    
+        if user_id not in dict_train_ref.keys():
+            dict_train_ref[user_id] = {'review_ids':'','product_ids':'', 'ratings':''}
+            prefix = ''
+        
+        dict_train_ref[user_id]['review_ids']   += prefix + str(row_dict['review_id'])
+        dict_train_ref[user_id]['product_ids']  += prefix + str(row_dict['product_id'])
+        dict_train_ref[user_id]['ratings']      += prefix + str(row_dict['rating'])
+
+def insert_reviews(
+        review_dataset,
+        engine:Engine,
+        batch_size:int
+    ):
     """
-    cache_dir - dir path for caching datasets.load_dataset
-    batch_size - batch size when loading to db
+    Insert reviews to reviews_train, reviews_test, reviews_valid
+
+    Args:
+        review_dataset (_type_): iteratable
+        engine (Engine): db engine
+        batch_size (int): 
     """
+    
+    assert 'user_id' in review_dataset[0].keys() # string type
+    assert 'parent_asin' in review_dataset[0].keys() # string type
+    assert 'rating' in review_dataset[0].keys()
+    
+    batch = []
+    
+    review_id = 0
+    for review in tqdm(review_dataset, desc="inserting review into db"):
+        
+        user_id, product_id, rating = review['user_id'], review['parent_asin'], float(review['rating'])
+        user_id, product_id = get_ids(user_id=user_id, product_id=product_id)
+        
+        assert type(user_id) is int
+        assert type(product_id) is int
+        assert type(rating) is float        
+        
+        # --------------------- save to batch....
+        row = {
+            'review_id' : review_id,
+            'user_id'   : user_id,
+            'product_id': product_id,
+            'rating'    : rating
+        }
+        
+        batch.append(row)
+        
+        if len(batch) == batch_size:
+            _insert_reviews_batch(engine=engine, batch_data=batch)
+            batch.clear()
+            
+        review_id += 1
+        
+    if batch:
+        _insert_reviews_batch(engine=engine, batch_data=batch)
+        batch.clear()
+        
+def create_schema(engine:Engine):
+    with engine.begin() as conn:
+        
+        for name in ['reviews_train','reviews_test','reviews_valid']:
+            conn.execute(
+                text(
+                f"""
+                CREATE TABLE {name} (
+                    review_id   integer primary key,
+                    user_id     integer,
+                    product_id  integer,
+                    rating      real
+                )
+                """
+                )
+            )
+            
+        conn.execute(
+            text(
+            """
+            CREATE TABLE reviews_reference(
+                user_id     integer primary key,
+                review_ids  text,
+                product_ids text,
+                ratings     text
+            )
+            """
+            )
+        )
+
+if __name__ == "__main__":
+        
+    print("Starting preprocess...")
+    db_path = os.path.realpath(os.path.join(os.path.dirname(__file__), "data/database.db"))
+    sqlite_conn_str = f"sqlite:////{db_path}"
+    engine = create_engine(sqlite_conn_str)
+    assert type(engine) is Engine
     
     create_schema(engine)
+    print("create schema: done!")
+    # --------------------- load review dataset
+    # ---------------------
+    cache_dir_path = os.path.join(os.path.dirname(__file__), 'cache')
     
     from datasets import load_dataset
     
@@ -112,129 +228,20 @@ def load_data_to_db(
                         "McAuley-Lab/Amazon-Reviews-2023",
                         "raw_review_Home_and_Kitchen",
                         trust_remote_code=True,
-                        cache_dir=cache_dir,
+                        cache_dir=cache_dir_path,
                         streaming=False
                     )['full']
-    """
+    print("load review dataset: done!")
     
-    """
+    # --------------------- insert review data
+    # ---------------------
+    insert_reviews(review_dataset, engine, 10000)
+    print("insert review data: done!")
     
-    batch = []
+    # --------------------- insert reference data
+    # ---------------------
+    insert_reference_data(engine, 100)
     
-    for review in tqdm(review_dataset):
+    
         
-        batch.append(
-                {
-                    'user_id':review['user_id'],
-                    'product_id':review['parent_asin'],
-                    'rating':review['rating']
-                }
-            )
-        
-        # Once the batch size is reached, insert into the database
-        if len(batch) == batch_size:
-            insert_reviews(engine, batch)
-            batch.clear()  # Clear the batch for the next set of records
-            
-    
-    # Insert any remaining records that are less than the batch size
-    if batch:
-        insert_reviews(engine, batch)
-        batch.clear()
-        
-        
-def generate_int_id(engine:Engine):
-    """
-    1. Create index on reviews for user_id and product_id
-    2. insert product_id to make product_id_int
-    3. create index on product_info table for product_id
-    4. update reviews table
-    5. create index on reviews table for product_id_int
-    """
-    
-    reviews_table_names = ['reviews_test', 'reviews_validation', 'reviews_train']
-    
-    # -------------------- Create index on reviews for user_id and product_id
-    #
-    with engine.begin() as conn:
-        for table in tqdm(reviews_table_names, desc="Create index on reviews for user_id and product_id"):
-            conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_user_id on {table} (user_id)"))
-            conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_product_id on {table} (product_id)"))    
-            
-    # -------------------- insert product_id to make product_id_int
-    #
-    with engine.begin() as conn:
-        for table in tqdm(reviews_table_names, desc="insert product_id to make product_id_int"):
-            conn.execute(
-                text(
-                f"""            
-                INSERT INTO product_info(product_id)
-                SELECT
-                    DISTINCT product_id
-                FROM
-                    {table}
-                WHERE
-                    product_id NOT IN (
-                        SELECT
-                            product_id
-                        FROM
-                            product_info
-                    )
-                """
-                )
-            )
-    # -------------------- create index on product_info table for product_id
-    #
-    with engine.begin() as conn:
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_product_info_product_id ON product_info (product_id)"))
-    
-    print("create index on product_info table for product_id: done.")
-    
-    # -------------------- update reviews table
-    #
-    with engine.begin() as conn:
-        for table in tqdm(reviews_table_names, desc="update reviews table"):
-            conn.execute(
-                text(
-                f"""
-                UPDATE
-                    {table}
-                SET
-                    product_id_int = (
-                            SELECT 
-                                product_id_int 
-                            FROM 
-                                product_info 
-                            WHERE 
-                                {table}.product_id = product_info.product_id
-                        )
-                """
-                )
-            )
-    
-    # -------------------- create index on reviews table for product_id_int
-    #
-    with engine.begin() as conn:
-        for table in tqdm(reviews_table_names, desc="create index on reviews table for product_id_int"):
-            conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_product_id_int on {table} (product_id_int)"))
-        
-    
-if __name__ == "__main__":
-    import os.path as path
-    
-    db_path = path.realpath(path.join(path.dirname(__file__), "data/database.db"))
-    sqlite_conn_str = f"sqlite:////{db_path}"
-    
-    cache_dir_path = path.join(path.dirname(__file__), 'cache')
-    
-    engine = create_engine(sqlite_conn_str)
-    
-    # load review data
-    load_data_to_db(
-        engine = engine, 
-        cache_dir=cache_dir_path,
-        batch_size=1000
-        )
-    # calculate some information from db
-    generate_int_id(engine)
     
