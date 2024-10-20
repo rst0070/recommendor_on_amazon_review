@@ -4,5 +4,8 @@ __pycache__
 reviews.db
 .vscode
 tmp
+.env
 
 engine/data/database.db
+engine/parameters
+engine/wandb

@@ -14,7 +14,7 @@ review_dataset = load_dataset(
                         "McAuley-Lab/Amazon-Reviews-2023",
                         "raw_review_Home_and_Kitchen",
                         trust_remote_code=True,
-                        streaming=True
+                        streaming=False
                     )['full']
 ```
 I splitted the dataset into train set and test set.  
