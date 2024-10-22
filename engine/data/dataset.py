@@ -19,6 +19,15 @@ class ReferenceData:
         db_conn_str:str,
         max_ref_per_user:int
     ):
+        """
+        Reference data:
+            if user(the user_id) have other reviews, we can use that for explaining about the user.
+            So, the reference data is other review's (product_id, rating)
+
+        Args:
+            db_conn_str (str): database connection string
+            max_ref_per_user (int): maximum number of reference per user
+        """
         self.db_conn_str = db_conn_str
         self.max_ref_per_user = max_ref_per_user
         
@@ -66,24 +75,33 @@ class ReferenceData:
                 .str.split(',') \
                 .transform(
                     transform_from_int
-                    # lambda x : 1 + np.array(
-                    #     list(map(int, x))[:self.max_ref_per_user],
-                    #     dtype=np.int32
-                    # )
                 )
         df['ratings'] = df['ratings'] \
                 .str.split(',') \
                 .transform(
                     transform_from_float
-                    # lambda x : 1 + np.array(
-                    #     list(map(int, map(float, x)))[:self.max_ref_per_user],
-                    #     dtype=np.int32
-                    # )
                 )
         
         return df
     
-    def get_reference(self, user_id) -> tuple[np.ndarray, np.ndarray]:
+    def get_reference(
+        self, 
+        user_id, 
+        except_product_id = None
+        ) -> tuple[np.ndarray, np.ndarray]:
+        """
+
+        Args:
+            user_id: 
+                user id for other reviews
+            except_product_id (_type_, optional): 
+                if it is set, excepts review data of the product. Defaults to None.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: 
+                (list of product ids, list of that's ratings), 
+                the index is matched b/w ids and ratings
+        """
         if user_id not in self.cache.index:
             return (
                 self.zero_ids,
@@ -91,22 +109,14 @@ class ReferenceData:
             )
             
         product_ids, ratings = self.cache.loc[user_id]
-        
-        if product_ids.shape[0] < self.max_ref_per_user:
-            product_ids = np.concatenate(
-                    (
-                        product_ids, 
-                        np.zeros((self.max_ref_per_user - product_ids.shape[0]), dtype=np.int32)
-                    ), 
-                    axis = 0
-                )
-            ratings = np.concatenate(
-                    (
-                        ratings, 
-                        np.zeros((self.max_ref_per_user - ratings.shape[0]), dtype=np.int32)
-                    ), 
-                    axis = 0
-                )
+            
+        if except_product_id is not None:
+            product_ids = product_ids.copy()
+            ratings = ratings.copy()
+            
+            idx_delete = np.where(product_ids == except_product_id)
+            product_ids[idx_delete] = 0
+            ratings[idx_delete]     = 0
             
         return (
             product_ids,
@@ -151,7 +161,10 @@ class TrainSet(Dataset):
     def __getitem__(self, idx):
         user_id, target_id, label = self.cache.iloc[idx]
         
-        product_ids, ratings = self.reference_data.get_reference(user_id)
+        product_ids, ratings = self.reference_data.get_reference(
+                user_id=user_id,
+                except_product_id=target_id
+            )
             
         result = (
             torch.tensor([target_id], dtype=torch.int32), 
@@ -226,4 +239,5 @@ if __name__ == "__main__":
     #     sqlite_conn_str,
     #     100
     #     )
+    print(reference_data.get_reference(0, 1))
     print(reference_data.get_reference(0))
