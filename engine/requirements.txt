@@ -1,3 +1,4 @@
 python-dotenv
 sqlalchemy
 wandb
+pandas==2.2.3
