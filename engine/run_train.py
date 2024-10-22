@@ -14,7 +14,7 @@ import torch.utils.data as data
 import datetime
 import numpy as np
 import configs
-from data.dataset import CacheStorage, TrainSet, ValidSet
+from data.dataset import TrainSet, ValidSet, ReferenceData
 from sqlalchemy.engine import Engine, Connection
 
 def set_seed(seed):
@@ -66,15 +66,16 @@ def run(
     )
         
     # ------------------------- Data sets
-    cache_storage = CacheStorage(
+    reference_data = ReferenceData(
             db_conn_str = db_conn_str,
             max_ref_per_user = exp_config.max_ref_per_user
         )
     
     train_loader = getDataLoader(
             dataset=TrainSet(
-                    cache=cache_storage,
-                    max_ref_per_user = exp_config.max_ref_per_user    
+                    reference_data=reference_data,
+                    db_conn_str = db_conn_str,
+                    max_ref_per_user = exp_config.max_ref_per_user   
                 ),
             batch_size=exp_config.batch_size_train, 
             num_workers=sys_config.num_workers
@@ -82,8 +83,9 @@ def run(
     
     test_loader = getDataLoader(
             dataset=ValidSet(
-                    cache=cache_storage,
-                    max_ref_per_user = exp_config.max_ref_per_user  
+                    reference_data=reference_data,
+                    db_conn_str = db_conn_str,
+                    max_ref_per_user = exp_config.max_ref_per_user    
                 ), 
             batch_size=exp_config.batch_size_valid, 
             num_workers=sys_config.num_workers
@@ -104,12 +106,12 @@ def run(
     
     # ------------------------- optimizer
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=exp_config.lr)
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-    #     optimizer,
-    #     T_0=exp_config.max_epoch,
-    #     T_mult=1,
-    #     eta_min=exp_config.lr_min
-    # )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer,
+        T_0=exp_config.max_epoch,
+        T_mult=1,
+        eta_min=exp_config.lr_min
+    )
     
     
     # ------------------------- trainer
@@ -117,6 +119,7 @@ def run(
             model=model,
             loss_fn=loss_fn,
             optimizer=optimizer,
+            scheduler=scheduler,
             train_loader=train_loader,
             test_loader=test_loader,
             logger=logger,
@@ -126,6 +129,7 @@ def run(
     
     trainer.run(
         max_epoch=exp_config.max_epoch,
+        save_parameter=sys_config.save_parameter,
         path_parameter_storage=sys_config.path_parameter_storage
     )
     

@@ -5,13 +5,14 @@ from tqdm import tqdm
 from ddp_util import all_gather
 from logger import Logger
 import os
-
+import datetime
 class Trainer:
     
     def __init__(self, 
         model       : nn.Module,
         loss_fn     : nn.Module,
         optimizer   : torch.optim.Optimizer,
+        scheduler   ,
         train_loader: torch.utils.data.DataLoader,
         test_loader : torch.utils.data.DataLoader,
         logger      : Logger,
@@ -21,6 +22,7 @@ class Trainer:
         self.model = model
         self.loss_fn = loss_fn
         self.optimizer = optimizer
+        self.scheduler = scheduler
         
         self.train_loader = train_loader
         self.test_loader = test_loader
@@ -68,7 +70,9 @@ class Trainer:
             pbar.set_description(f'loss: {loss}')
             
             if num_item_train * 0.02 <= iter_count:
-                self.logger.wandbLog({'Loss' : loss_sum / float(iter_count)})
+                self.logger.wandbLog(
+                        {'Loss' : loss_sum / float(iter_count)}
+                    )
                 loss_sum = 0
                 iter_count = 0
                 
@@ -111,59 +115,70 @@ class Trainer:
         label_list = torch.cat(label_list, dim=0)
         
         
-        rmse = self.calculate_RMSE(infer_list, label_list)
+        error = self.calculate_error(infer_list, label_list)
         
         
-        return rmse
+        return error
             
-    def calculate_RMSE(self, infers: torch.Tensor, labels: torch.Tensor) -> float:
-        # RMSE
-        
-        n = len(infers)
-        x = infers - labels
-        x = (x.square()/n).sqrt()
-        x = x.mean()
-        return x.numpy().astype(float)
+    def calculate_error(self, infers: torch.Tensor, labels: torch.Tensor) -> float:
+        # L1 Norm
+        norm = nn.functional.l1_loss(input=infers, target=labels, reduction='mean')
+        return norm.numpy().astype(float)
         
     
-    def run(self, max_epoch, path_parameter_storage):
+    def run(
+        self,
+        max_epoch:int,
+        save_parameter:bool, 
+        path_parameter_storage:str
+        ):
         
         best_err = 100.
         for epoch in range(1, max_epoch + 1):
             
             self.logger.print(f'epoch: {epoch}')
             self.train()
-            #scheduler.step()
+            self.scheduler.step()
             
             # -------------------- evaluation
-            if epoch % 5 == 1 or epoch == max_epoch:
+            err = self.valid()
+            self.logger.print(f'err: {err}')
+            self.logger.wandbLog(
+                    {
+                        'err' : err, 
+                        'learning_rate': self.scheduler.get_last_lr() , 
+                        'epoch' : epoch
+                    }
+                )
                 
-                err = self.valid()
-                self.logger.print(f'err: {err}')
-                self.logger.wandbLog({'err' : err, 'epoch' : epoch})
-                
-                if err < best_err:
+            if err < best_err:
 
-                    best_err = err
-                    self.logger.wandbLog({'err' : err, 'epoch' : epoch})
+                best_err = err
+                self.logger.wandbLog({'err' : err, 'epoch' : epoch})
                     
-                    if self.device == 0:
-                        self.save_model(
+                if self.device == 0 and save_parameter:
+                    self.save_model(
                             path_parameter_storage=path_parameter_storage,
-                            save_name=f"{str(err)[0:6]}.pt"
+                            error=err
                         )
                 
     def save_model(
         self, 
-        path_parameter_storage, 
-        save_name
+        path_parameter_storage:str, 
+        error:float
         ):
         
         if self.device != 0:
             return
         
-        full_path = os.path.join(path_parameter_storage, save_name)
-        self.logger.print("saving... path: " + full_path)
+        directory = datetime.date.today().strftime("%Y-%m-%d")
+        directory = os.path.join(path_parameter_storage, directory)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            
+        save_name = str(error)+".pt"
+        full_path = os.path.join(directory, save_name)
         
+        self.logger.print("saving... path: " + full_path)
         torch.save(self.model.state_dict(), full_path)
     

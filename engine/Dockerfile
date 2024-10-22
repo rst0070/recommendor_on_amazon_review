@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:22.01-py3
+FROM nvcr.io/nvidia/pytorch:24.01-py3
 
 RUN apt-get update
 
