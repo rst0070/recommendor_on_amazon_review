@@ -47,43 +47,71 @@ class ReferenceData:
             """,
             con = conn.connection,
             dtype = {
-                'user_id' : object # user id is int, by setting `object` pandas doesnt cast to other type
+                'user_id' : object, # user id is int, by setting `object` pandas doesnt cast to other type
+                'product_ids' : object,
+                'ratings': object
             }
         )
         df.set_index(keys='user_id', inplace=True)
         
         conn.close()    
         
-        def transform_from_int(x):
+        # def transform_from_int(x):
             
-            x = list(map(int, x))[:self.max_ref_per_user]
-            x = 1 + np.array(x, dtype=np.int32)
-            x = np.pad(x, (0, self.max_ref_per_user - x.shape[0]), 'constant', constant_values=(0, 0))
+        #     x = list(map(int, x))[:self.max_ref_per_user]
+        #     x = 1 + np.array(x, dtype=np.int32)
+        #     x = np.pad(x, (0, self.max_ref_per_user - x.shape[0]), 'constant', constant_values=(0, 0))
             
-            return x
+        #     return x
         
-        def transform_from_float(x):
+        # def transform_from_float(x):
             
-            x = list(map(int, map(float, x)))[:self.max_ref_per_user]
-            x = 1 + np.array(x, dtype=np.int32)
-            x = np.pad(x, (0, self.max_ref_per_user - x.shape[0]), 'constant', constant_values=(0, 0))
+        #     x = list(map(int, map(float, x)))[:self.max_ref_per_user]
+        #     x = 1 + np.array(x, dtype=np.int32)
+        #     x = np.pad(x, (0, self.max_ref_per_user - x.shape[0]), 'constant', constant_values=(0, 0))
             
-            return x
+        #     return x
             
         
-        df['product_ids'] = df['product_ids'] \
-                .str.split(',') \
-                .transform(
-                    transform_from_int
-                )
-        df['ratings'] = df['ratings'] \
-                .str.split(',') \
-                .transform(
-                    transform_from_float
-                )
+        # df['product_ids'] = df['product_ids'] \
+        #         .str.split(',') \
+        #         .transform(
+        #             transform_from_int
+        #         )
+        # df['ratings'] = df['ratings'] \
+        #         .str.split(',') \
+        #         .transform(
+        #             transform_from_float
+        #         )
         
         return df
     
+    def _transform_from_int(self, x):
+        x = eval(x)
+        
+        if type(x) is not tuple:
+            x = (x,)
+            
+        x = list(map(int, x))[:self.max_ref_per_user]
+        
+        x = 1 + np.array(x, dtype=np.int32)
+        x = np.pad(x, (0, self.max_ref_per_user - x.shape[0]), 'constant', constant_values=(0, 0))
+            
+        return x
+        
+    def _transform_from_float(self,x):
+        x = eval(x)
+            
+        if type(x) is not tuple:
+            x = (x,)
+            
+        x = list(map(int, map(float, x)))[:self.max_ref_per_user]
+            
+        x = 1 + np.array(x, dtype=np.int32)
+        x = np.pad(x, (0, self.max_ref_per_user - x.shape[0]), 'constant', constant_values=(0, 0))
+            
+        return x
+        
     def get_reference(
         self, 
         user_id, 
@@ -109,6 +137,15 @@ class ReferenceData:
             )
             
         product_ids, ratings = self.cache.loc[user_id]
+        
+        if type(product_ids) is str:
+            
+            product_ids = self._transform_from_int(product_ids)
+            ratings     = self._transform_from_float(ratings)
+            
+            self.cache.at[user_id, 'product_ids']   = product_ids
+            self.cache.at[user_id, 'ratings']       = ratings           
+            
             
         if except_product_id is not None:
             product_ids = product_ids.copy()
