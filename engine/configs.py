@@ -10,20 +10,20 @@ class SysConfig:
         self.wandb_project              = 'Amazon_review_2023'
         self.wandb_name                 = 'NCF with transformer'
         self.wandb_entity               = 'rst0070'
-        self.wandb_notes                = 'commit: exp1.lr=8*1e-4, max_ref_per_user=31, emb_size = 32, batch_size = 17000, num worker=3'
+        self.wandb_notes                = 'commit: exp1.lr=8*1e-4, max_ref_per_user=63, emb_size = 32, batch_size = 7800, num worker=2'
         
-        self.load_pretrained_parameter   = False
+        self.load_pretrained_parameter   = True
         self.pretrained_parameter_path  = os.path.realpath(
-            os.path.join(os.path.dirname(__file__), 'parameters/2024-10-22/small'))
+            os.path.join(os.path.dirname(__file__), 'parameters/2024-10-22/max_ref_63/1.0740489959716797.pt'))
         
         self.save_parameter             = True
-        self.path_parameter_storage     = os.path.realpath(os.path.join(os.path.dirname(__file__), 'parameters'))
+        self.path_parameter_storage     = os.path.realpath(os.path.join(os.path.dirname(__file__), 'parameters/max_ref_63'))
         """
         path where to save model parameter
         """
         
-        self.num_workers_train          = 3
-        self.num_workers_valid          = 3
+        self.num_workers_train          = 2
+        self.num_workers_valid          = 2
         self.num_product                = 3734413 + 1 + 1 
         """
         +1 to maximum id of products (because it starts from 0)
@@ -40,7 +40,7 @@ class ExpConfig:
     
     def __init__(self):
         
-        self.max_ref_per_user           = 31#63
+        self.max_ref_per_user           = 63#31
         
         self.random_seed                = 1024
         
