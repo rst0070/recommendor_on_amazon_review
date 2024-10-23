@@ -14,7 +14,7 @@ class Trainer:
         optimizer   : torch.optim.Optimizer,
         scheduler   ,
         train_loader: torch.utils.data.DataLoader,
-        test_loader : torch.utils.data.DataLoader,
+        valid_loader: torch.utils.data.DataLoader,
         logger      : Logger,
         device      : int
     ):
@@ -25,7 +25,7 @@ class Trainer:
         self.scheduler = scheduler
         
         self.train_loader = train_loader
-        self.test_loader = test_loader
+        self.valid_loader = valid_loader
         
         self.logger = logger
         
@@ -90,7 +90,7 @@ class Trainer:
         infer_list = []
         label_list = []
         
-        pbar = tqdm(self.test_loader, 'evaluation')
+        pbar = tqdm(self.valid_loader, 'evaluation')
         with torch.no_grad():
             
             for product_id, rating, ref_ids, ref_ratings in pbar:
@@ -146,7 +146,7 @@ class Trainer:
             self.logger.wandbLog(
                     {
                         'err' : err, 
-                        'learning_rate': self.scheduler.get_last_lr() , 
+                        'learning_rate': self.scheduler.get_last_lr()[0] , 
                         'epoch' : epoch
                     }
                 )

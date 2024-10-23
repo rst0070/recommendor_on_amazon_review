@@ -52,38 +52,8 @@ class ReferenceData:
                 'ratings': object
             }
         )
-        df.set_index(keys='user_id', inplace=True)
-        
         conn.close()    
-        
-        # def transform_from_int(x):
-            
-        #     x = list(map(int, x))[:self.max_ref_per_user]
-        #     x = 1 + np.array(x, dtype=np.int32)
-        #     x = np.pad(x, (0, self.max_ref_per_user - x.shape[0]), 'constant', constant_values=(0, 0))
-            
-        #     return x
-        
-        # def transform_from_float(x):
-            
-        #     x = list(map(int, map(float, x)))[:self.max_ref_per_user]
-        #     x = 1 + np.array(x, dtype=np.int32)
-        #     x = np.pad(x, (0, self.max_ref_per_user - x.shape[0]), 'constant', constant_values=(0, 0))
-            
-        #     return x
-            
-        
-        # df['product_ids'] = df['product_ids'] \
-        #         .str.split(',') \
-        #         .transform(
-        #             transform_from_int
-        #         )
-        # df['ratings'] = df['ratings'] \
-        #         .str.split(',') \
-        #         .transform(
-        #             transform_from_float
-        #         )
-        
+        df.set_index(keys='user_id', inplace=True)
         return df
     
     def _transform_from_int(self, x):
@@ -138,18 +108,20 @@ class ReferenceData:
             
         product_ids, ratings = self.cache.loc[user_id]
         
-        if type(product_ids) is str:
+        # if type(product_ids) is str:
             
-            product_ids = self._transform_from_int(product_ids)
-            ratings     = self._transform_from_float(ratings)
+        #     product_ids = self._transform_from_int(product_ids)
+        #     ratings     = self._transform_from_float(ratings)
             
-            self.cache.at[user_id, 'product_ids']   = product_ids
-            self.cache.at[user_id, 'ratings']       = ratings           
+        #     self.cache.at[user_id, 'product_ids']   = product_ids
+        #     self.cache.at[user_id, 'ratings']       = ratings           
             
+        product_ids = self._transform_from_int(product_ids)
+        ratings     = self._transform_from_float(ratings)
             
         if except_product_id is not None:
-            product_ids = product_ids.copy()
-            ratings = ratings.copy()
+            # product_ids = product_ids.copy()
+            # ratings = ratings.copy()
             
             idx_delete = np.where(product_ids == except_product_id)
             product_ids[idx_delete] = 0

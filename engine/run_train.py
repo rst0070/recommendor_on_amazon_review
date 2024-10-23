@@ -78,29 +78,38 @@ def run(
                     max_ref_per_user = exp_config.max_ref_per_user   
                 ),
             batch_size=exp_config.batch_size_train, 
-            num_workers=sys_config.num_workers
+            num_workers=sys_config.num_workers_train
         )
     
-    test_loader = getDataLoader(
+    valid_loader = getDataLoader(
             dataset=ValidSet(
                     reference_data=reference_data,
                     db_conn_str = db_conn_str,
                     max_ref_per_user = exp_config.max_ref_per_user    
                 ), 
             batch_size=exp_config.batch_size_valid, 
-            num_workers=sys_config.num_workers
+            num_workers=sys_config.num_workers_valid
         )
     
     # ------------------------- Model setup
-    model = DDP(
-        Ncf(
+    model = Ncf(
             num_product=sys_config.num_product,
             num_rating=sys_config.num_rating,
             embedding_dim=exp_config.embedding_size,
             num_transformer_block=exp_config.num_transformer_block,
             ffn_hidden=exp_config.ffn_hidden,
             device = device
-            ).to(device) )
+            ).to(device)
+    
+    if sys_config.load_pretrained_parameter:
+        # load pretrained parameters
+        model.load_state_dict(
+                torch.load(sys_config.pretrained_parameter_path, weights_only=True)
+            )
+        
+        logger.print(f"pretrained parameter is loaded from :{sys_config.pretrained_parameter_path}")
+    
+    model = DDP(model)
     
     loss_fn = nn.MSELoss().to(device) #DDP is not needed when a module doesn't have any parameter that requires a gradient.
     
@@ -113,7 +122,6 @@ def run(
         eta_min=exp_config.lr_min
     )
     
-    
     # ------------------------- trainer
     trainer = Trainer(
             model=model,
@@ -121,7 +129,7 @@ def run(
             optimizer=optimizer,
             scheduler=scheduler,
             train_loader=train_loader,
-            test_loader=test_loader,
+            valid_loader=valid_loader,
             logger=logger,
             device=device
         )
