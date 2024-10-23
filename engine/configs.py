@@ -10,7 +10,7 @@ class SysConfig:
         self.wandb_project              = 'Amazon_review_2023'
         self.wandb_name                 = 'NCF with transformer'
         self.wandb_entity               = 'rst0070'
-        self.wandb_notes                = 'commit: exp1.lr=8*1e-4, max_ref_per_user=63, emb_size = 32, batch_size = 7800, num worker=2'
+        self.wandb_notes                = 'commit: exp2.lr=8*1e-4, max_ref_per_user=63, emb_size = 32, batch_size = 7800, num worker=2'
         
         self.load_pretrained_parameter   = True
         self.pretrained_parameter_path  = os.path.realpath(
