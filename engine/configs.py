@@ -50,7 +50,7 @@ class ExpConfig:
         self.ffn_hidden                 = 80
         
         
-        self.batch_size_train           = 17000#7800
+        self.batch_size_train           = 7800#7800
         self.batch_size_valid           = 1000
         self.max_epoch                  = 100
         

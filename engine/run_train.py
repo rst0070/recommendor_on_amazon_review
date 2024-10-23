@@ -104,7 +104,8 @@ def run(
     if sys_config.load_pretrained_parameter:
         # load pretrained parameters
         model.load_state_dict(
-                torch.load(sys_config.pretrained_parameter_path, weights_only=True)
+                torch.load(sys_config.pretrained_parameter_path, weights_only=True),
+                strict = False
             )
         
         logger.print(f"pretrained parameter is loaded from :{sys_config.pretrained_parameter_path}")
