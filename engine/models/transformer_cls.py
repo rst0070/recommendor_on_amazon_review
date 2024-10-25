@@ -5,21 +5,23 @@ from models.embedding.product import ProductEmbedding
 from models.embedding.rating import RatingEmbedding
 from collections import OrderedDict
 
-class Ncf(nn.Module):
+class TransformerCls(nn.Module):
     
     def __init__(
         self,
+        device,
         num_product:int,
-        num_rating:int,
-        embedding_dim:int,
-        num_transformer_block:int,
-        ffn_hidden:int,
-        device
+        num_rating:int = 5,
+        embedding_dim:int = 64,
+        num_transformer_block:int = 3,
+        ffn_hidden:int = 80
         ):
         """
-        
+        TransformerCls is classification model.
+        input: target product_id and reference data (pairs of  product_id and rating)
+        classes: rating 1, 2, 3, 4 or 5
         """
-        super(Ncf, self).__init__()
+        super(TransformerCls, self).__init__()
         
         self.product_embedding = ProductEmbedding(
                 num_embeddings=num_product+1,
@@ -47,9 +49,12 @@ class Ncf(nn.Module):
         
         self.encoders = nn.Sequential(_encoders)
         
-        self.ffn = nn.Sequential(
-            nn.Linear(in_features=embedding_dim, out_features=1),
-            nn.Sigmoid()
+        self.classifier = nn.Sequential(
+            nn.Linear(in_features=embedding_dim, out_features=embedding_dim),
+            nn.SiLU(),
+            nn.BatchNorm1d(num_features=embedding_dim),
+            nn.Linear(in_features=embedding_dim, out_features=num_rating),
+            nn.BatchNorm1d(num_features=num_rating)
         )
 
         
@@ -73,8 +78,8 @@ class Ncf(nn.Module):
         x = torch.cat((ref, target, target_token), dim = 1) # [batch, num_reference * 2 + 2, embedding_dim]
         x = self.encoders(x) # [batch, 1+num_reference, embedding_dim]
         
-        x = self.ffn(x[:, -1,:]) # [batch, 1]
-        x = 5.0 * x
+        cls_token = x[:, -1, :] # [batch, embedding_dim]
+        x = self.classifier(cls_token) # [batch, 5]
         
         return x
         
@@ -84,18 +89,18 @@ if __name__ == "__main__":
     num_product = 10000
     num_rating = 5
     
-    num_ref = 100
-    emb_dim = 16
+    num_ref = 10
+    emb_dim = 64
     
     device = 0
     
-    model = Ncf(
+    model = TransformerCls(
+            device=device,
             num_product=num_product,
             num_rating=num_rating,
             embedding_dim=emb_dim,
-            num_transformer_block=5,
+            num_transformer_block=3,
             ffn_hidden=80,
-            device=device
         ).to(device)
     
     

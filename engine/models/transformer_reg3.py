@@ -5,7 +5,7 @@ from models.embedding.product import ProductEmbedding
 from models.embedding.rating import RatingEmbedding
 from collections import OrderedDict
 
-class Ncf(nn.Module):
+class TransformerReg(nn.Module):
     
     def __init__(
         self,
@@ -19,7 +19,7 @@ class Ncf(nn.Module):
         """
         
         """
-        super(Ncf, self).__init__()
+        super(TransformerReg, self).__init__()
         
         self.product_embedding = ProductEmbedding(
                 num_embeddings=num_product+1,
@@ -47,8 +47,19 @@ class Ncf(nn.Module):
         
         self.encoders = nn.Sequential(_encoders)
         
+        self.attention = nn.Sequential(
+            nn.Conv1d(in_channels=embedding_dim, out_channels=embedding_dim//2, kernel_size=1),
+            nn.ReLU(),
+            nn.Conv1d(in_channels=embedding_dim//2, out_channels=embedding_dim, kernel_size=1),
+            nn.Softmax(dim=-1)
+        )
+        
         self.ffn = nn.Sequential(
+            nn.Linear(in_features=embedding_dim*2, out_features=embedding_dim),
+            nn.ReLU(),
+            nn.BatchNorm1d(num_features=embedding_dim),
             nn.Linear(in_features=embedding_dim, out_features=1),
+            nn.BatchNorm1d(num_features=1),
             nn.Sigmoid()
         )
 
@@ -60,23 +71,29 @@ class Ncf(nn.Module):
         ratings:torch.IntTensor
         ) -> torch.Tensor:
         
-        p = self.product_embedding(products) # [batch, num_reference, embedding_dim] num reference can be various
-        r = self.rating_embedding(ratings) # [batch, num_reference, embedding_dim]
+        target = self.product_embedding(target_product) \
+                + self.target_token
+        # [batch, 1, emb_dim]
+                
+        ref = self.product_embedding(products) \
+                + self.rating_embedding(ratings)
+        # [batch, num_ref, emb_dim]
+                
+        x = torch.cat((target, ref), dim = 1) # [batch, num_ref + 1, emb_dim]
+        x = self.encoders(x) # [batch, num_ref + 1, emb_dim]
         
-        ref = torch.stack((p, r), dim = 2) # [batch, num_reference, 2, embedding_dim]
-        _b, _r, _, _e = ref.size()
-        ref = ref.view(_b, _r * 2, _e) # [batch, num_reference * 2, embedding_dim]
+        batch, num_emb, emb_dim = x.size()
+        x = x.view(batch, emb_dim, num_emb)
+        w = self.attention(x)
         
-        target = self.product_embedding(target_product) # [batch, 1, embedding_dim]
-        target_token = self.target_token.repeat(_b, 1, 1) # [batch, 1, embedding_dim]
+        mu = torch.sum(x * w, dim=-1)
+        sg = torch.sqrt( ( torch.sum((x**2) * w, dim=-1) - mu**2 ).clamp(min=1e-4) )
+        # [batch, emb_dim]
         
-        x = torch.cat((ref, target, target_token), dim = 1) # [batch, num_reference * 2 + 2, embedding_dim]
-        x = self.encoders(x) # [batch, 1+num_reference, embedding_dim]
+        x = torch.cat((mu,sg),dim = -1)
+        x = self.ffn(x) # [batch, 1]
         
-        x = self.ffn(x[:, -1,:]) # [batch, 1]
-        x = 5.0 * x
-        
-        return x
+        return x * 5.0
         
 if __name__ == "__main__":
     from torchinfo import summary
@@ -89,7 +106,7 @@ if __name__ == "__main__":
     
     device = 0
     
-    model = Ncf(
+    model = TransformerReg(
             num_product=num_product,
             num_rating=num_rating,
             embedding_dim=emb_dim,

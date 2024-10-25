@@ -5,7 +5,7 @@ from models.embedding.product import ProductEmbedding
 from models.embedding.rating import RatingEmbedding
 from collections import OrderedDict
 
-class Ncf(nn.Module):
+class TransformerReg(nn.Module):
     
     def __init__(
         self,
@@ -19,7 +19,7 @@ class Ncf(nn.Module):
         """
         
         """
-        super(Ncf, self).__init__()
+        super(TransformerReg, self).__init__()
         
         self.product_embedding = ProductEmbedding(
                 num_embeddings=num_product+1,
@@ -48,7 +48,11 @@ class Ncf(nn.Module):
         self.encoders = nn.Sequential(_encoders)
         
         self.ffn = nn.Sequential(
+            nn.Linear(in_features=embedding_dim, out_features=embedding_dim),
+            nn.SiLU(),
+            nn.BatchNorm1d(num_features=embedding_dim),
             nn.Linear(in_features=embedding_dim, out_features=1),
+            nn.BatchNorm1d(num_features=1),
             nn.Sigmoid()
         )
 
@@ -74,9 +78,8 @@ class Ncf(nn.Module):
         x = self.encoders(x) # [batch, 1+num_reference, embedding_dim]
         
         x = self.ffn(x[:, -1,:]) # [batch, 1]
-        x = 5.0 * x
         
-        return x
+        return x * 5.0
         
 if __name__ == "__main__":
     from torchinfo import summary

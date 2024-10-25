@@ -5,17 +5,17 @@ from torch.distributed import init_process_group, destroy_process_group
 import os
 import torch
 import torch.nn as nn
-from trainer import Trainer
-from models.ncf import Ncf
 from logger import Logger
-import wandb
 import random
 import torch.utils.data as data
 import datetime
 import numpy as np
 import configs
 from data.dataset import TrainSet, ValidSet, ReferenceData
-from sqlalchemy.engine import Engine, Connection
+from models.transformer_reg6 import TransformerReg
+from models.transformer_cls import TransformerCls
+
+from trainers import classification, regression
 
 def set_seed(seed):
     random.seed(seed)
@@ -67,15 +67,14 @@ def run(
         
     # ------------------------- Data sets
     reference_data = ReferenceData(
-            db_conn_str = db_conn_str,
-            max_ref_per_user = exp_config.max_ref_per_user
+            db_conn_str = db_conn_str
         )
     
     train_loader = getDataLoader(
             dataset=TrainSet(
                     reference_data=reference_data,
                     db_conn_str = db_conn_str,
-                    max_ref_per_user = exp_config.max_ref_per_user   
+                    max_ref_per_user = exp_config.max_ref_per_user_train   
                 ),
             batch_size=exp_config.batch_size_train, 
             num_workers=sys_config.num_workers_train
@@ -85,34 +84,43 @@ def run(
             dataset=ValidSet(
                     reference_data=reference_data,
                     db_conn_str = db_conn_str,
-                    max_ref_per_user = exp_config.max_ref_per_user    
+                    max_ref_per_user = exp_config.max_ref_per_user_valid   
                 ), 
             batch_size=exp_config.batch_size_valid, 
             num_workers=sys_config.num_workers_valid
         )
     
     # ------------------------- Model setup
-    model = Ncf(
+    if exp_config.classification:
+        model = TransformerCls(
+            device=device,
+            num_product=sys_config.num_product,
+            num_rating=sys_config.num_rating,
+            embedding_dim=exp_config.embedding_size,
+            num_transformer_block=exp_config.num_transformer_block,
+            ffn_hidden=exp_config.ffn_hidden,
+        ).to(device)
+        loss_fn = nn.CrossEntropyLoss().to(device)
+    else:
+        model = TransformerReg(
             num_product=sys_config.num_product,
             num_rating=sys_config.num_rating,
             embedding_dim=exp_config.embedding_size,
             num_transformer_block=exp_config.num_transformer_block,
             ffn_hidden=exp_config.ffn_hidden,
             device = device
-            ).to(device)
+        ).to(device)
+        loss_fn = nn.MSELoss().to(device) #DDP is not needed when a module doesn't have any parameter that requires a gradient.
+    
+    model = DDP(module=model)
     
     if sys_config.load_pretrained_parameter:
         # load pretrained parameters
         model.load_state_dict(
                 torch.load(sys_config.pretrained_parameter_path, weights_only=True),
-                strict = False
+                # strict = False
             )
-        
         logger.print(f"pretrained parameter is loaded from :{sys_config.pretrained_parameter_path}")
-    
-    model = DDP(model)
-    
-    loss_fn = nn.MSELoss().to(device) #DDP is not needed when a module doesn't have any parameter that requires a gradient.
     
     # ------------------------- optimizer
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=exp_config.lr)
@@ -124,7 +132,8 @@ def run(
     )
     
     # ------------------------- trainer
-    trainer = Trainer(
+    if exp_config.classification:
+        trainer = classification.Trainer(
             model=model,
             loss_fn=loss_fn,
             optimizer=optimizer,
@@ -132,14 +141,25 @@ def run(
             train_loader=train_loader,
             valid_loader=valid_loader,
             logger=logger,
+            path_save_dir=sys_config.path_parameter_storage,
+            device=device
+        )
+    else:
+        trainer = regression.Trainer(
+            model=model,
+            loss_fn=loss_fn,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            train_loader=train_loader,
+            valid_loader=valid_loader,
+            logger=logger,
+            path_save_dir=sys_config.path_parameter_storage,
             device=device
         )
     
-    
     trainer.run(
         max_epoch=exp_config.max_epoch,
-        save_parameter=sys_config.save_parameter,
-        path_parameter_storage=sys_config.path_parameter_storage
+        save_parameter=sys_config.save_parameter
     )
     
     destroy_process_group()
@@ -165,7 +185,7 @@ if __name__ == "__main__":
     set_seed(exp_config.random_seed)
     torch.cuda.empty_cache()
     
-    port = f'10{datetime.datetime.now().microsecond % 100}'
+    port = f'100{datetime.datetime.now().microsecond % 100}'
     world_size = torch.cuda.device_count()
     
     

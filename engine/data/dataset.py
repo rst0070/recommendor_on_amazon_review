@@ -1,10 +1,6 @@
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine
 
 from torch.utils.data import Dataset
-from typing import Tuple
-
-from tqdm import tqdm
 import torch
 
 import numpy as np
@@ -16,8 +12,7 @@ class ReferenceData:
     
     def __init__(
         self,
-        db_conn_str:str,
-        max_ref_per_user:int
+        db_conn_str:str
     ):
         """
         Reference data:
@@ -26,13 +21,10 @@ class ReferenceData:
 
         Args:
             db_conn_str (str): database connection string
-            max_ref_per_user (int): maximum number of reference per user
         """
         self.db_conn_str = db_conn_str
-        self.max_ref_per_user = max_ref_per_user
         
         self.cache = self._get_data()
-        self.zero_ids = np.zeros(self.max_ref_per_user, dtype=np.int32)
         
     def _get_data(self):
         """
@@ -41,13 +33,14 @@ class ReferenceData:
         conn = create_engine(self.db_conn_str).connect()        
         df = pd.read_sql(
             sql="""
-            SELECT user_id, product_ids, ratings
+            SELECT user_id, review_ids, product_ids, ratings
             FROM reviews_reference
             ORDER BY user_id
             """,
             con = conn.connection,
             dtype = {
                 'user_id' : object, # user id is int, by setting `object` pandas doesnt cast to other type
+                'review_ids' : object,
                 'product_ids' : object,
                 'ratings': object
             }
@@ -56,44 +49,55 @@ class ReferenceData:
         df.set_index(keys='user_id', inplace=True)
         return df
     
-    def _transform_from_int(self, x):
+    def _transform_from_review_id_str(self, x, num_max_ref) -> np.ndarray:
         x = eval(x)
         
         if type(x) is not tuple:
             x = (x,)
             
-        x = list(map(int, x))[:self.max_ref_per_user]
+        x = list(map(int, x))[:num_max_ref]
+            
+        return np.array(x, dtype=np.int32)
+    
+    def _transform_from_product_id_str(self, x, num_max_ref) -> np.ndarray:
+        x = eval(x)
         
-        x = 1 + np.array(x, dtype=np.int32)
-        x = np.pad(x, (0, self.max_ref_per_user - x.shape[0]), 'constant', constant_values=(0, 0))
+        if type(x) is not tuple:
+            x = (x,)
+            
+        x = list(map(int, x))[:num_max_ref]
+        
+        x = 1 + np.array(x, dtype=np.int32) # id = 0 is for padding
+        x = np.pad(x, (0, num_max_ref - x.shape[0]), 'constant', constant_values=(0, 0))
             
         return x
         
-    def _transform_from_float(self,x):
+    def _transform_from_rating_str(self,x, num_max_ref) -> np.ndarray:
         x = eval(x)
             
         if type(x) is not tuple:
             x = (x,)
             
-        x = list(map(int, map(float, x)))[:self.max_ref_per_user]
+        x = list(map(int, map(float, x)))[:num_max_ref]
             
-        x = 1 + np.array(x, dtype=np.int32)
-        x = np.pad(x, (0, self.max_ref_per_user - x.shape[0]), 'constant', constant_values=(0, 0))
+        x = np.array(x, dtype=np.int32) # rating: [1,5]
+        x = np.pad(x, (0, num_max_ref - x.shape[0]), 'constant', constant_values=(0, 0))
             
         return x
         
     def get_reference(
         self, 
         user_id, 
-        except_product_id = None
+        num_max_ref: int,
+        except_review_id = None
         ) -> tuple[np.ndarray, np.ndarray]:
         """
 
         Args:
             user_id: 
                 user id for other reviews
-            except_product_id (_type_, optional): 
-                if it is set, excepts review data of the product. Defaults to None.
+            except_review_id (_type_, optional): 
+                if it is set,this function excepts review data of the review id. Defaults to None.
 
         Returns:
             tuple[np.ndarray, np.ndarray]: 
@@ -102,28 +106,23 @@ class ReferenceData:
         """
         if user_id not in self.cache.index:
             return (
-                self.zero_ids,
-                self.zero_ids
+                np.zeros(num_max_ref, dtype=np.int32),
+                np.zeros(num_max_ref, dtype=np.int32)
             )
             
-        product_ids, ratings = self.cache.loc[user_id]
-        
-        # if type(product_ids) is str:
+        review_ids, product_ids, ratings = self.cache.loc[user_id]
+                
+        product_ids = self._transform_from_product_id_str(product_ids, num_max_ref)
+        ratings     = self._transform_from_rating_str(ratings, num_max_ref)
             
-        #     product_ids = self._transform_from_int(product_ids)
-        #     ratings     = self._transform_from_float(ratings)
+        if except_review_id is not None:
+            # delete information of review which id is `except_review_id`
+            #
             
-        #     self.cache.at[user_id, 'product_ids']   = product_ids
-        #     self.cache.at[user_id, 'ratings']       = ratings           
+            review_ids  = self._transform_from_review_id_str(review_ids, num_max_ref) # only used in this function
             
-        product_ids = self._transform_from_int(product_ids)
-        ratings     = self._transform_from_float(ratings)
+            idx_delete = np.where(review_ids == except_review_id)
             
-        if except_product_id is not None:
-            # product_ids = product_ids.copy()
-            # ratings = ratings.copy()
-            
-            idx_delete = np.where(product_ids == except_product_id)
             product_ids[idx_delete] = 0
             ratings[idx_delete]     = 0
             
@@ -151,7 +150,7 @@ class TrainSet(Dataset):
         conn = create_engine(self.db_conn_str).connect()
         df = pd.read_sql(
             sql = """
-            SELECT user_id, (product_id + 1) AS target_id, rating AS label
+            SELECT user_id, review_id, (product_id + 1) AS target_id, rating AS label
             FROM reviews_train
             """,
             con = conn.connection,
@@ -168,16 +167,17 @@ class TrainSet(Dataset):
         return len(self.cache.index)
             
     def __getitem__(self, idx):
-        user_id, target_id, label = self.cache.iloc[idx]
+        user_id, review_id, target_id, label = self.cache.iloc[idx]
         
         product_ids, ratings = self.reference_data.get_reference(
                 user_id=user_id,
-                except_product_id=target_id
+                num_max_ref=self.max_ref_per_user,
+                except_review_id=review_id
             )
             
         result = (
             torch.tensor([target_id], dtype=torch.int32), 
-            torch.tensor([label], dtype=torch.float32), 
+            torch.tensor([label], dtype=torch.int32), 
             torch.tensor(product_ids, dtype=torch.int32),
             torch.tensor(ratings, dtype=torch.int32)
         )
@@ -221,11 +221,11 @@ class ValidSet(Dataset):
     def __getitem__(self, idx):
         user_id, target_id, label = self.cache.iloc[idx]
         
-        product_ids, ratings = self.reference_data.get_reference(user_id)
+        product_ids, ratings = self.reference_data.get_reference(user_id, self.max_ref_per_user)
             
         result = (
             torch.tensor([target_id], dtype=torch.int32), 
-            torch.tensor([label], dtype=torch.float32), 
+            torch.tensor([label], dtype=torch.int32), 
             torch.tensor(product_ids, dtype=torch.int32),
             torch.tensor(ratings, dtype=torch.int32)
         )
@@ -242,11 +242,11 @@ if __name__ == "__main__":
     db_path = path.realpath(path.join(path.dirname(__file__), "database.db"))
     sqlite_conn_str = f"sqlite:////{db_path}"
     
-    reference_data = ReferenceData(sqlite_conn_str, 100)
+    reference_data = ReferenceData(sqlite_conn_str)
     # train_set = TrainSet(
     #     reference_data, 
     #     sqlite_conn_str,
     #     100
     #     )
     print(reference_data.get_reference(0, 1))
-    print(reference_data.get_reference(0))
+    print(reference_data.get_reference(0, 1000))
