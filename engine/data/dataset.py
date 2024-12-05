@@ -25,7 +25,7 @@ class BaseSet(Dataset):
         self.total_num = None
 
         self.offset = 0
-        self.chunk_size = 500
+        self.chunk_size = chunk_size
         self.chunk = self._get_chunk(0)
 
     def __len__(self):
