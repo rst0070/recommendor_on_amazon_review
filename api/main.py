@@ -20,7 +20,7 @@ api_service = APIService(
     api_repository=api_repository
 )
 
-@app.route('/list/<category_name>', methods=['GET'])
+@app.route('/list/<category_name>', methods=['POST'])
 def get_top_k(category_name):
     # Check if the request content type is JSON
     if not request.is_json:
