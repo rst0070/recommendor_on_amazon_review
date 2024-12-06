@@ -33,10 +33,6 @@ create table review_train_reference (
 	primary key (category_code, user_id)
 ) partition by LIST(category_code);
 
--- Create the user and grant SELECT privileges
-CREATE USER reader WITH PASSWORD 'reader';
-GRANT SELECT ON review_train, review_valid, review_test, review_train_reference  TO reader;
-
 -- num of categories: 33 (including unknown)
 
 -- Partition for 0
@@ -395,3 +391,16 @@ INSERT INTO category_info(category_code, category_name)
 VALUES(31, 'Unknown');
 INSERT INTO category_info(category_code, category_name)
 VALUES(32, 'Video_Games');
+
+-- Create the user and grant SELECT privileges
+CREATE USER reader WITH PASSWORD 'reader';
+GRANT 
+	SELECT ON 
+		review_train, 
+		review_valid, 
+		review_test, 
+		review_train_reference, 
+		user_info,
+		product_info,
+		category_info  
+	TO reader;
