@@ -6,6 +6,8 @@ reviews.db
 tmp
 .env
 
-engine/data/database.db
 engine/parameters
 engine/wandb
+engine/vector_db/storage
+
+dataset/*.jsonl

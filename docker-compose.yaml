@@ -1,0 +1,27 @@
+services:
+  engine:
+    container_name: amazon_review_engine
+    build: ./engine
+    volumes:
+      - ./engine/parameters:/app/parameters
+      - ./engine/vector_db/storage:/app/vector_db/storage
+    ports:
+      - 3006:3006
+    command: >
+      bash -c "poetry run python main.py"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all # alternatively, use `count: all` for all GPUs
+              capabilities: [gpu]
+  
+  api:
+    container_name: amazon_review_api
+    build: ./api
+    ports:
+      - 3005:8080
+    depends_on:
+      - engine
+      

@@ -2,13 +2,14 @@ import torch
 import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
-from ddp_util import all_gather
-from logger import Logger
-import os
+from train.logger import Logger
 import datetime
+import os
+
 class Trainer:
     
     def __init__(self, 
+        category_code: int,
         model       : nn.Module,
         loss_fn     : nn.Module,
         optimizer   : torch.optim.Optimizer,
@@ -16,9 +17,10 @@ class Trainer:
         train_loader: torch.utils.data.DataLoader,
         valid_loader: torch.utils.data.DataLoader,
         logger      : Logger,
+        path_save_dir: str,
         device      : int
     ):
-        
+        self.category_code = category_code
         self.model = model
         self.loss_fn = loss_fn
         self.optimizer = optimizer
@@ -28,6 +30,8 @@ class Trainer:
         self.valid_loader = valid_loader
         
         self.logger = logger
+        
+        self.path_save_dir = path_save_dir
         
         self.device = device
         
@@ -41,12 +45,13 @@ class Trainer:
         loss_sum = 0
         num_item_train = len(self.train_loader)
         pbar = tqdm(self.train_loader)
+        
         for product_id, rating, ref_ids, ref_ratings in pbar:
             
             self.optimizer.zero_grad()
             
             product_id  = product_id.to(self.device)
-            rating      = rating.to(self.device)
+            rating      = rating.to(self.device).float()
             ref_ids     = ref_ids.to(self.device)
             ref_ratings = ref_ratings.to(self.device)
             
@@ -108,31 +113,31 @@ class Trainer:
         infer_list = torch.cat(infer_list, dim=0)
         label_list = torch.cat(label_list, dim=0)
                     
-        infer_list = all_gather(infer_list)
-        label_list = all_gather(label_list)
+        # infer_list = all_gather(infer_list)
+        # label_list = all_gather(label_list)
         
-        infer_list = torch.cat(infer_list, dim=0)
-        label_list = torch.cat(label_list, dim=0)
+        # infer_list = torch.cat(infer_list, dim=0)
+        # label_list = torch.cat(label_list, dim=0)
         
         
-        error = self.calculate_error(infer_list, label_list)
+        error = self.calculate_RMSE(infer_list, label_list)
         
         
         return error
-            
-    def calculate_error(self, infers: torch.Tensor, labels: torch.Tensor) -> float:
-        # L1 Norm
-        norm = nn.functional.l1_loss(input=infers, target=labels, reduction='mean')
-        return norm.numpy().astype(float)
+    
+    def calculate_RMSE(self, infers: torch.Tensor, labels: torch.Tensor) -> float:
+        infers, labels = infers.float(), labels.float()
+        mse = torch.mean((labels - infers) ** 2)
+        return torch.sqrt(mse).numpy()
         
     
     def run(
         self,
         max_epoch:int,
         save_parameter:bool, 
-        path_parameter_storage:str
         ):
         
+        parameter = None
         best_err = 100.
         for epoch in range(1, max_epoch + 1):
             
@@ -154,25 +159,28 @@ class Trainer:
             if err < best_err:
 
                 best_err = err
+                parameter = self.model.state_dict()
                 self.logger.wandbLog({'err' : err, 'epoch' : epoch})
                     
-                if self.device == 0 and save_parameter:
-                    self.save_model(
-                            path_parameter_storage=path_parameter_storage,
-                            error=err
-                        )
+        if save_parameter:
+            self.save_model(
+                error=best_err,
+                parameter=parameter  
+            )
+        
+                    
                 
     def save_model(
-        self, 
-        path_parameter_storage:str, 
-        error:float
+        self,
+        error:float,
+        parameter
         ):
-        
         if self.device != 0:
             return
         
-        directory = datetime.date.today().strftime("%Y-%m-%d")
-        directory = os.path.join(path_parameter_storage, directory)
+        #directory = datetime.date.today().strftime("%Y-%m-%d")
+        directory = str(self.category_code)
+        directory = os.path.join(self.path_save_dir, directory)
         if not os.path.exists(directory):
             os.makedirs(directory)
             
@@ -180,5 +188,9 @@ class Trainer:
         full_path = os.path.join(directory, save_name)
         
         self.logger.print("saving... path: " + full_path)
-        torch.save(self.model.state_dict(), full_path)
+        torch.save(parameter, full_path)
+    
+
+
+    
     
