@@ -1,4 +1,0 @@
-python-dotenv
-sqlalchemy
-wandb
-psycopg2-binary
