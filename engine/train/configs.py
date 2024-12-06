@@ -7,9 +7,9 @@ class SysConfig:
         self.db_echo                    = False
         self.device                     = 0
         
-        self.wandb_disabled             = True
+        self.wandb_disabled             = False
         self.wandb_project              = 'Amazon_review_2023'
-        self.wandb_name                 = 'transformer small'
+        self.wandb_name                 = 'transformer fixed!'
         self.wandb_entity               = 'rst0070'
         self.wandb_notes                = 'transformer small test'
         
@@ -24,7 +24,7 @@ class SysConfig:
         """
         
         self.num_workers_train          = 4
-        self.num_workers_valid          = 4
+        self.num_workers_valid          = 3
         self.num_product                = 13300000 # 13.3M is maximum num in a category # home and kitchen: 3734414
         
         
@@ -45,8 +45,8 @@ class ExpConfig:
         self.ffn_hidden                 = 8
         
         
-        self.batch_size_train           = 1500#7800
-        self.batch_size_valid           = 1500
+        self.batch_size_train           = 10000#7800
+        self.batch_size_valid           = 3000
         self.max_epoch                  = 3
         
         self.lr                         = 8 * 1e-4 #8 * 1e-4

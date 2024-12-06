@@ -6,4 +6,5 @@ sudo docker run -d \
     --name amazon_review_train \
     --shm-size=50gb \
     -v ./parameters:/app/parameters \
-    amazon_review_engine:latest
+    amazon_review_engine:latest \
+    python -m scripts.run_train

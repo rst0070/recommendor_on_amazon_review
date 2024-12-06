@@ -18,12 +18,13 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     
-def getDataLoader(dataset, batch_size, num_workers):
+def getDataLoader(dataset, batch_size, num_workers, worker_init_fn):
     return data.DataLoader(
         dataset=dataset, 
         batch_size=batch_size, 
         pin_memory=True, shuffle=False,
-        num_workers=num_workers
+        num_workers=num_workers,
+        worker_init_fn=worker_init_fn
     )
     
 def run(
@@ -46,33 +47,46 @@ def run(
         wandb_notes     = sys_config.wandb_notes
     )
     
-    # reference_data = ReferenceData(
-    #     category_code = category_code,
-    #     db_conn_str = db_conn_str
-    # )
-    
-    train_loader = getDataLoader(
-        dataset=TrainSet(
-            # reference_data=reference_data,
+    train_dataset = TrainSet(
             category_code=category_code,
             db_conn_str = db_conn_str,
-            max_ref_per_user = exp_config.max_ref_per_user_train,
-            chunk_size=exp_config.batch_size_train // sys_config.num_workers_train
-        ),
+            max_ref_per_user = exp_config.max_ref_per_user_train
+        )
+    size = exp_config.batch_size_train // sys_config.num_workers_train
+    train_dataset.preload_length(db_conn_str)
+    train_loader = getDataLoader(
+        dataset=train_dataset,
         batch_size=exp_config.batch_size_train, 
-        num_workers=sys_config.num_workers_train
+        num_workers=sys_config.num_workers_train,
+        worker_init_fn=lambda idx: TrainSet.preload_data(
+            db_conn_str=db_conn_str, 
+            category_code=category_code, 
+            length = TrainSet.length.value, 
+            max_ref_per_user=exp_config.max_ref_per_user_train, 
+            offset = idx*size, 
+            size = size if idx != (sys_config.num_workers_train - 1) else size + (exp_config.batch_size_train % sys_config.num_workers_train)
+            )
     )
     
-    valid_loader = getDataLoader(
-        dataset=ValidSet(
-            # reference_data=reference_data,
+    valid_dataset = ValidSet(
             category_code=category_code,
             db_conn_str = db_conn_str,
-            max_ref_per_user = exp_config.max_ref_per_user_valid,
-            chunk_size=exp_config.batch_size_valid // sys_config.num_workers_valid
-        ), 
+            max_ref_per_user = exp_config.max_ref_per_user_valid
+        )
+    size = exp_config.batch_size_valid // sys_config.num_workers_valid
+    valid_dataset.preload_length(db_conn_str)
+    valid_loader = getDataLoader(
+        dataset=valid_dataset,
         batch_size=exp_config.batch_size_valid, 
-        num_workers=sys_config.num_workers_valid
+        num_workers=sys_config.num_workers_valid,
+        worker_init_fn=lambda idx: ValidSet.preload_data(
+            db_conn_str=db_conn_str, 
+            category_code=category_code, 
+            length = TrainSet.length.value, 
+            max_ref_per_user=exp_config.max_ref_per_user_valid, 
+            offset = idx*size, 
+            size = size if idx != (sys_config.num_workers_valid - 1) else size + (exp_config.batch_size_valid % sys_config.num_workers_valid)
+            )
     )
     
     model = TransformerReg(
@@ -120,7 +134,7 @@ if __name__ == "__main__":
     db_conn_str = os.getenv('DB_CONN_STR')
     assert type(db_conn_str) is str
     
-    for code in range(11, 33):
+    for code in range(0, 33):
         print(f"Training category code: {code}")
         run(
             category_code=code,

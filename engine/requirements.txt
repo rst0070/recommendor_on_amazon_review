@@ -1,0 +1,7 @@
+python-dotenv
+sqlalchemy
+wandb
+psycopg2-binary
+chromadb
+flask
+numpy<2

@@ -1,13 +1,9 @@
 FROM nvcr.io/nvidia/pytorch:24.01-py3
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install curl -y
-RUN python -m pip install --upgrade pip
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_CREATE=false \
-    POETRY_CACHE_DIR='/var/cache/pypoetry' \
-    POETRY_HOME='/usr/local'
-RUN curl -sSL https://install.python-poetry.org/ | python  
+
+RUN apt-get update
+
 COPY ./ /app/
 WORKDIR /app
-RUN poetry install
+
+RUN pip install pip --upgrade
+RUN pip install torch -r ./requirements.txt

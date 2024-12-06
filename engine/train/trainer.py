@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
 from train.logger import Logger
-import datetime
+from data.dataset import TrainSet, ValidSet
 import os
 
 class Trainer:
@@ -56,12 +56,13 @@ class Trainer:
             ref_ratings = ref_ratings.to(self.device)
             
             assert len(product_id.shape)  == 2, "batch of product_id: [batch, 1]"
-            assert len(rating.shape)      == 2, "batch of rating: [batch, 1]"
+            assert len(rating.shape)      == 1, "batch of rating: [batch]"
             assert len(ref_ids.shape)     == 2, "batch of ref_ids: [batch, max num of reference]"
             assert len(ref_ratings.shape) == 2, "batch of ref_ratings: [batch, max num of reference]"
             
             ###################### forward and backward
             infer = self.model(product_id, ref_ids, ref_ratings)
+            assert len(infer.shape)       == 1, "batch of infer: [batch]"
             loss = self.loss_fn(infer, rating)
             
             loss.backward()
@@ -76,12 +77,17 @@ class Trainer:
             
             if num_item_train * 0.02 <= iter_count:
                 self.logger.wandbLog(
-                        {'Loss' : loss_sum / float(iter_count)}
+                        {
+                            'category_code' : self.category_code,
+                            'Loss' : loss_sum / float(iter_count)
+                        }
                     )
                 loss_sum = 0
                 iter_count = 0
-                
-                
+        
+        ### Clear shared memory!!!!!
+        TrainSet.clear_shared_memory()      
+        
     def valid(self) -> float:
         """
         Evaluate model on validation set
@@ -109,20 +115,14 @@ class Trainer:
 
                 infer_list.append(y.cpu().squeeze())
                 label_list.append(rating.cpu().squeeze())
-
+                
+        ### Clear shared memory!!!
+        ValidSet.clear_shared_memory()
+        
         infer_list = torch.cat(infer_list, dim=0)
-        label_list = torch.cat(label_list, dim=0)
-                    
-        # infer_list = all_gather(infer_list)
-        # label_list = all_gather(label_list)
+        label_list = torch.cat(label_list, dim=0)        
         
-        # infer_list = torch.cat(infer_list, dim=0)
-        # label_list = torch.cat(label_list, dim=0)
-        
-        
-        error = self.calculate_RMSE(infer_list, label_list)
-        
-        
+        error = self.calculate_RMSE(infer_list, label_list)        
         return error
     
     def calculate_RMSE(self, infers: torch.Tensor, labels: torch.Tensor) -> float:
@@ -150,6 +150,7 @@ class Trainer:
             self.logger.print(f'err: {err}')
             self.logger.wandbLog(
                     {
+                        'category_code' : self.category_code,
                         'err' : err, 
                         'learning_rate': self.scheduler.get_last_lr()[0] , 
                         'epoch' : epoch
@@ -160,7 +161,11 @@ class Trainer:
 
                 best_err = err
                 parameter = self.model.state_dict()
-                self.logger.wandbLog({'err' : err, 'epoch' : epoch})
+                self.logger.wandbLog({
+                    'category_code' : self.category_code,
+                    'err' : err,
+                    'epoch' : epoch
+                })
                     
         if save_parameter:
             self.save_model(
