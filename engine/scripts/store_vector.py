@@ -28,6 +28,9 @@ def get_param(category_code):
     return torch.load(param_path)
     
 def get_product_ids(db_conn_str, category_code) -> list[int]:
+    """
+    returns products ids which is top 1000 (based on number of reviews) per category
+    """
     engine = create_engine(db_conn_str)
     with engine.connect() as conn:
         res = conn.execute(
@@ -39,6 +42,7 @@ def get_product_ids(db_conn_str, category_code) -> list[int]:
                     product_info
                 WHERE
                     category_code = '{category_code}'
+                    and is_top_1000 = TRUE
                 """
                 )
             ).fetchall()
@@ -99,7 +103,6 @@ if __name__ == "__main__":
     load_dotenv()
     db_conn_str = os.getenv('DB_CONN_STR')
     
-    # for category_code in range(0, 33):
-    #     run(category_code, db_conn_str)
-    run(0, db_conn_str)
-    check(0)
+    for category_code in range(1, 16):
+        run(category_code, db_conn_str)
+        check(category_code)
